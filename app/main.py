@@ -133,8 +133,6 @@ async def diagnostic_test():
 
 @app.post("/api/v1/ai/chat", response_model=ChatResponse, dependencies=[Depends(check_rate_limit)])
 async def chat(request: ChatRequest):
-    # Construct context string
-    ctx_str = "No active scan data available."
     if request.context:
         ctx = request.context
         ctx_str = (
@@ -154,13 +152,23 @@ async def chat(request: ChatRequest):
                 ctx_str += f"  {k}: {v:.2f}\n"
         if ctx.error_message:
             ctx_str += f"\nScan Errors: {ctx.error_message}\n"
+            
+        system_instruction = (
+            f"Context from SentinelML:\n{ctx_str}\n\n"
+            "If the user asks about the scan, answer based strictly on this provided scan data. "
+            "Do not fabricate scan values. Do not override or second-guess the SentinelML classification. "
+            "Keep responses concise and professional."
+        )
+    else:
+        system_instruction = (
+            "No active scan data is available for this session. "
+            "If the user specifically asks about their latest scan, why something was detected, or to analyze their system, truthfully state that no scan data is available. "
+            "However, if the user asks a general cybersecurity question (e.g. 'What is ransomware?', 'How do I protect my PC?'), answer it normally and professionally."
+        )
 
     prompt = (
-        f"Context from SentinelML:\n{ctx_str}\n\n"
-        f"User Message: {request.message}\n\n"
-        "Answer based strictly on the provided scan data. "
-        "Do not fabricate scan values. If no scan data is available, say so explicitly. "
-        "Do not override or second-guess the SentinelML classification. Keep responses concise and professional."
+        f"{system_instruction}\n\n"
+        f"User Message: {request.message}"
     )
 
     response_text = await generate_response(prompt)
