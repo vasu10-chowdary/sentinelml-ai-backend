@@ -105,13 +105,24 @@ async def diagnostic_test():
     except Exception as e:
         status_code = None
         error_type = type(e).__name__
-        error_msg = str(e)
         
+        # Pull response text if it exists
+        error_msg = str(e)
+        if hasattr(e, "response") and e.response is not None:
+            status_code = e.response.status_code
+            try:
+                if e.response.text:
+                    error_msg = f"HTTP {status_code} - {e.response.text}"
+            except Exception:
+                pass
+                
+        # Strict sanitization
         if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY in error_msg:
             error_msg = error_msg.replace(settings.GEMINI_API_KEY, "[REDACTED]")
             
-        if hasattr(e, "response") and e.response is not None:
-            status_code = e.response.status_code
+        import re
+        error_msg = re.sub(r'(AIzaSy\S+|AQ\.Ab\S+)', '[REDACTED]', error_msg)
+        error_msg = re.sub(r'https://generativelanguage[^\s\'"]+', '[URL_REDACTED]', error_msg)
             
         return {
             "success": False,

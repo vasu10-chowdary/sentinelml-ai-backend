@@ -49,9 +49,15 @@ async def generate_response(prompt: str) -> str:
                     logger.warning(f"AI model failed: {last_error}. Trying next fallback...")
                     continue
                 else:
-                    err_msg = f"HTTP {response.status_code}"
-                    logger.error(f"AI model failed: {err_msg}")
-                    raise httpx.HTTPStatusError(err_msg, request=response.request, response=response)
+                    err_body = response.text
+                    if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY in err_body:
+                        err_body = err_body.replace(settings.GEMINI_API_KEY, "[REDACTED]")
+                    import re
+                    err_body = re.sub(r'(AIzaSy\S+|AQ\.Ab\S+)', '[REDACTED]', err_body)
+                    err_msg = f"HTTP {response.status_code} - {err_body}"
+                    logger.error(f"AI model error: {err_msg}")
+                    # Provide a safe string to HTTPStatusError to avoid URL leakage in str(e)
+                    raise httpx.HTTPStatusError("Gemini API rejected request", request=response.request, response=response)
 
             except httpx.TimeoutException:
                 last_error = "TIMEOUT"
