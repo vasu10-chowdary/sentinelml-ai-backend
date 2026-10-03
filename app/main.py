@@ -32,14 +32,24 @@ async def add_request_id(request: Request, call_next):
         response.headers["X-Request-ID"] = req_id
         return response
     except Exception as exc:
-        logger.error(f"Request {req_id} failed: {exc}")
-        # Redact API key if it somehow ends up in the error string
+        import traceback
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         err_str = str(exc)
-        if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY in err_str:
-            err_str = err_str.replace(settings.GEMINI_API_KEY, "[REDACTED]")
+        
+        # Redact API key if it somehow ends up in the error string or traceback
+        if settings.GEMINI_API_KEY:
+            if settings.GEMINI_API_KEY in err_str:
+                err_str = err_str.replace(settings.GEMINI_API_KEY, "[REDACTED]")
+            if settings.GEMINI_API_KEY in tb:
+                tb = tb.replace(settings.GEMINI_API_KEY, "[REDACTED]")
+                
+        import re
+        tb = re.sub(r'https://generativelanguage[^\s\'"]+', '[URL_REDACTED]', tb)
+        
+        logger.error(f"Request {req_id} failed with Exception Type: {type(exc).__name__}. Message: {err_str}\nTraceback:\n{tb}")
             
         status_code = 500
-        detail = "AI service encountered a temporary error."
+        detail = f"Diagnostic traceback: {tb}"
         
         if isinstance(exc, httpx.HTTPStatusError):
             if exc.response.status_code in (401, 403):
