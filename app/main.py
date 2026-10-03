@@ -49,7 +49,7 @@ async def add_request_id(request: Request, call_next):
         logger.error(f"Request {req_id} failed with Exception Type: {type(exc).__name__}. Message: {err_str}\nTraceback:\n{tb}")
             
         status_code = 500
-        detail = f"Diagnostic traceback: {tb}"
+        detail = "AI service encountered a temporary error."
         
         if isinstance(exc, httpx.HTTPStatusError):
             if exc.response.status_code in (401, 403):
