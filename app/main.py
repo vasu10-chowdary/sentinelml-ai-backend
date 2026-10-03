@@ -65,9 +65,60 @@ async def add_request_id(request: Request, call_next):
         )
 
 
+import sys
+import httpx as httpx_pkg
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "sentinelml-ai-backend"}
+
+@app.get("/api/v1/ai/diagnostics")
+async def diagnostics():
+    key = settings.GEMINI_API_KEY or ""
+    prefix = key[:4] if len(key) >= 4 else None
+    if not key:
+        prefix = None
+    
+    return {
+        "service": "sentinelml-ai-backend",
+        "gemini_key_configured": bool(key),
+        "gemini_key_length": len(key),
+        "gemini_key_prefix": prefix,
+        "gemini_model": settings.GEMINI_MODEL,
+        "models_configured": [settings.GEMINI_MODEL, "gemini-3.5-flash", "gemini-3.1-flash-lite"],
+        "python_version": sys.version.split(" ")[0],
+        "httpx_version": httpx_pkg.__version__,
+        "status": "ok"
+    }
+
+@app.post("/api/v1/ai/diagnostic-test")
+async def diagnostic_test():
+    prompt = "What is ransomware? Answer in one short sentence."
+    try:
+        response_text = await generate_response(prompt)
+        return {
+            "success": True,
+            "model": settings.GEMINI_MODEL,
+            "response_received": True,
+            "response_length": len(response_text)
+        }
+    except Exception as e:
+        status_code = None
+        error_type = type(e).__name__
+        error_msg = str(e)
+        
+        if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY in error_msg:
+            error_msg = error_msg.replace(settings.GEMINI_API_KEY, "[REDACTED]")
+            
+        if hasattr(e, "response") and e.response is not None:
+            status_code = e.response.status_code
+            
+        return {
+            "success": False,
+            "error_type": error_type,
+            "status_code": status_code,
+            "error_message": error_msg
+        }
 
 @app.post("/api/v1/ai/chat", response_model=ChatResponse, dependencies=[Depends(check_rate_limit)])
 async def chat(request: ChatRequest):
