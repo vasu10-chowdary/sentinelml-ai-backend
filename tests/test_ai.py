@@ -223,3 +223,31 @@ def test_D_generic_cybersecurity_no_context(mock_post):
     assert "cybersecurity question" in prompt_sent or "No active scan data" in prompt_sent, (
         "No-context system instruction not present in prompt"
     )
+
+# ─── TEST E: Unicode regression test ──────────────────────────────────────────
+@patch("app.gemini_client.httpx.AsyncClient.post")
+def test_E_unicode_preservation(mock_post):
+    # Verify that apostrophes, em dashes, and other unicode are preserved
+    unicode_answer = "Ransomware’s impact — it costs users money—a ransom—is severe. naïve café"
+
+    class MockResponse:
+        status_code = 200
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": unicode_answer}]}}]}
+
+    async def mock_async_post(*args, **kwargs):
+        return MockResponse()
+
+    mock_post.side_effect = mock_async_post
+    settings.GEMINI_API_KEY = "test_key"
+
+    response = client.post("/api/v1/ai/chat", json={"message": "unicode test"})
+    
+    # Assert headers are correctly declaring UTF-8
+    assert "utf-8" in response.headers.get("content-type", "").lower()
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["success"] == True
+    # The exact unicode string must be returned intact
+    assert data["response"] == unicode_answer

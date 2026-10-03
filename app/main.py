@@ -61,16 +61,19 @@ async def add_request_id(request: Request, call_next):
         return JSONResponse(
             status_code=status_code,
             content={"success": False, "response": detail},
-            headers={"X-Request-ID": req_id}
+            headers={"X-Request-ID": req_id},
+            media_type="application/json; charset=utf-8"
         )
-
 
 import sys
 import httpx as httpx_pkg
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "sentinelml-ai-backend"}
+    return JSONResponse(
+        content={"status": "ok", "service": "sentinelml-ai-backend"},
+        media_type="application/json; charset=utf-8"
+    )
 
 @app.get("/api/v1/ai/diagnostics")
 async def diagnostics():
@@ -79,29 +82,35 @@ async def diagnostics():
     if not key:
         prefix = None
     
-    return {
-        "service": "sentinelml-ai-backend",
-        "gemini_key_configured": bool(key),
-        "gemini_key_length": len(key),
-        "gemini_key_prefix": prefix,
-        "gemini_model": settings.GEMINI_MODEL,
-        "models_configured": [settings.GEMINI_MODEL, "gemini-3.5-flash", "gemini-3.1-flash-lite"],
-        "python_version": sys.version.split(" ")[0],
-        "httpx_version": httpx_pkg.__version__,
-        "status": "ok"
-    }
+    return JSONResponse(
+        content={
+            "service": "sentinelml-ai-backend",
+            "gemini_key_configured": bool(key),
+            "gemini_key_length": len(key),
+            "gemini_key_prefix": prefix,
+            "gemini_model": settings.GEMINI_MODEL,
+            "models_configured": [settings.GEMINI_MODEL, "gemini-3.5-flash", "gemini-3.1-flash-lite"],
+            "python_version": sys.version.split(" ")[0],
+            "httpx_version": httpx_pkg.__version__,
+            "status": "ok"
+        },
+        media_type="application/json; charset=utf-8"
+    )
 
 @app.post("/api/v1/ai/diagnostic-test")
 async def diagnostic_test():
     prompt = "What is ransomware? Answer in one short sentence."
     try:
         response_text = await generate_response(prompt)
-        return {
-            "success": True,
-            "model": settings.GEMINI_MODEL,
-            "response_received": True,
-            "response_length": len(response_text)
-        }
+        return JSONResponse(
+            content={
+                "success": True,
+                "model": settings.GEMINI_MODEL,
+                "response_received": True,
+                "response_length": len(response_text)
+            },
+            media_type="application/json; charset=utf-8"
+        )
     except Exception as e:
         status_code = None
         error_type = type(e).__name__
@@ -124,12 +133,15 @@ async def diagnostic_test():
         error_msg = re.sub(r'(AIzaSy\S+|AQ\.Ab\S+)', '[REDACTED]', error_msg)
         error_msg = re.sub(r'https://generativelanguage[^\s\'"]+', '[URL_REDACTED]', error_msg)
             
-        return {
-            "success": False,
-            "error_type": error_type,
-            "status_code": status_code,
-            "error_message": error_msg
-        }
+        return JSONResponse(
+            content={
+                "success": False,
+                "error_type": error_type,
+                "status_code": status_code,
+                "error_message": error_msg
+            },
+            media_type="application/json; charset=utf-8"
+        )
 
 @app.post("/api/v1/ai/chat", response_model=ChatResponse, dependencies=[Depends(check_rate_limit)])
 async def chat(request: ChatRequest):
@@ -173,4 +185,7 @@ async def chat(request: ChatRequest):
 
     response_text = await generate_response(prompt)
     
-    return ChatResponse(success=True, response=response_text)
+    return JSONResponse(
+        content=ChatResponse(success=True, response=response_text).model_dump(),
+        media_type="application/json; charset=utf-8"
+    )
