@@ -1,0 +1,106 @@
+import uuid
+import logging
+import httpx
+from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.config import settings
+from app.models import ChatRequest, ChatResponse
+from app.security import check_rate_limit
+from app.gemini_client import generate_response
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("sentinelml-ai-backend")
+
+app = FastAPI(title="SentinelML AI Backend")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    req_id = str(uuid.uuid4())
+    request.state.req_id = req_id
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = req_id
+        return response
+    except Exception as exc:
+        logger.error(f"Request {req_id} failed: {exc}")
+        # Redact API key if it somehow ends up in the error string
+        err_str = str(exc)
+        if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY in err_str:
+            err_str = err_str.replace(settings.GEMINI_API_KEY, "[REDACTED]")
+            
+        status_code = 500
+        detail = "AI service encountered a temporary error."
+        
+        if isinstance(exc, httpx.HTTPStatusError):
+            if exc.response.status_code in (401, 403):
+                status_code = exc.response.status_code
+                detail = "AI service authentication failed."
+            elif exc.response.status_code == 429:
+                status_code = 429
+                detail = "AI service is temporarily busy. Please try again later."
+            elif exc.response.status_code in (500, 502, 503, 504):
+                status_code = 503
+                detail = "AI service is currently unavailable."
+        elif isinstance(exc, httpx.TimeoutException):
+            status_code = 504
+            detail = "AI service did not respond within 15 seconds."
+        elif isinstance(exc, httpx.RequestError):
+            status_code = 502
+            detail = "Unable to reach SentinelML AI service."
+            
+        return JSONResponse(
+            status_code=status_code,
+            content={"success": False, "response": detail},
+            headers={"X-Request-ID": req_id}
+        )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "sentinelml-ai-backend"}
+
+@app.post("/api/v1/ai/chat", response_model=ChatResponse, dependencies=[Depends(check_rate_limit)])
+async def chat(request: ChatRequest):
+    # Construct context string
+    ctx_str = "No active scan data available."
+    if request.context:
+        ctx = request.context
+        ctx_str = (
+            f"Scan State: {ctx.scan_state}\n"
+            f"Threat Level: {ctx.threat_level}\n"
+            f"ML Executed: {ctx.ml_executed}\n"
+        )
+        if ctx.ml_executed:
+            ctx_str += f"ML Probability: {ctx.ml_probability:.4f}\n"
+        ctx_str += (
+            f"Files Inspected: {ctx.files_inspected}\n"
+            f"Processes Analyzed: {ctx.processes_analyzed}\n"
+        )
+        if ctx.features:
+            ctx_str += "\nExtracted ML Features:\n"
+            for k, v in ctx.features.items():
+                ctx_str += f"  {k}: {v:.2f}\n"
+        if ctx.error_message:
+            ctx_str += f"\nScan Errors: {ctx.error_message}\n"
+
+    prompt = (
+        f"Context from SentinelML:\n{ctx_str}\n\n"
+        f"User Message: {request.message}\n\n"
+        "Answer based strictly on the provided scan data. "
+        "Do not fabricate scan values. If no scan data is available, say so explicitly. "
+        "Do not override or second-guess the SentinelML classification. Keep responses concise and professional."
+    )
+
+    response_text = await generate_response(prompt)
+    
+    return ChatResponse(success=True, response=response_text)
