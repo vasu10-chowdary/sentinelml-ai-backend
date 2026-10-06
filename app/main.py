@@ -164,29 +164,51 @@ async def chat(request: ChatRequest):
         )
         if ctx.ml_executed:
             ctx_str += f"ML Probability: {ctx.ml_probability:.4f}\n"
+            
+        ctx_str += f"Scan Duration: {ctx.scan_duration:.1f}s\n"
         ctx_str += (
             f"Files Inspected: {ctx.files_inspected}\n"
+            f"Directories Inspected: {ctx.directories_inspected}\n"
             f"Processes Analyzed: {ctx.processes_analyzed}\n"
         )
+        
+        if ctx.skipped_files > 0 or ctx.access_denied > 0:
+            ctx_str += f"Skipped: {ctx.skipped_files} | Access Denied: {ctx.access_denied}\n"
+
+        if ctx.entropy_samples > 0:
+            ctx_str += (
+                f"Entropy Samples: {ctx.entropy_samples}\n"
+                f"Avg Entropy: {ctx.avg_entropy:.2f} | Max Entropy: {ctx.max_entropy:.2f} | High Entropy Regions: {ctx.high_entropy_region_count}\n"
+            )
+            
+        ctx_str += f"Network Connections: {ctx.network_connections} | External IPs: {ctx.external_ips}\n"
+
         if ctx.features:
             ctx_str += "\nExtracted ML Features:\n"
             for k, v in ctx.features.items():
                 ctx_str += f"  {k}: {v:.2f}\n"
+                
         if ctx.error_message:
             ctx_str += f"\nScan Errors: {ctx.error_message}\n"
             
-        system_instruction = (
-            f"Context from SentinelML:\n{ctx_str}\n\n"
-            "If the user asks about the scan, answer based strictly on this provided scan data. "
-            "Do not fabricate scan values. Do not override or second-guess the SentinelML classification. "
-            "Keep responses concise and professional."
-        )
+        if request.system_instructions:
+            system_instruction = f"{request.system_instructions}\n\nContext from SentinelML:\n{ctx_str}"
+        else:
+            system_instruction = (
+                f"Context from SentinelML:\n{ctx_str}\n\n"
+                "If the user asks about the scan, answer based strictly on this provided scan data. "
+                "Do not fabricate scan values. Do not override or second-guess the SentinelML classification. "
+                "Keep responses concise and professional."
+            )
     else:
-        system_instruction = (
-            "No active scan data is available for this session. "
-            "If the user specifically asks about their latest scan, why something was detected, or to analyze their system, truthfully state that no scan data is available. "
-            "However, if the user asks a general cybersecurity question (e.g. 'What is ransomware?', 'How do I protect my PC?'), answer it normally and professionally."
-        )
+        if request.system_instructions:
+            system_instruction = request.system_instructions + "\n\nNo active scan data is available for this session. Tell the user there is no scan data if they ask."
+        else:
+            system_instruction = (
+                "No active scan data is available for this session. "
+                "If the user specifically asks about their latest scan, why something was detected, or to analyze their system, truthfully state that no scan data is available. "
+                "However, if the user asks a general cybersecurity question (e.g. 'What is ransomware?', 'How do I protect my PC?'), answer it normally and professionally."
+            )
 
     prompt = (
         f"{system_instruction}\n\n"
