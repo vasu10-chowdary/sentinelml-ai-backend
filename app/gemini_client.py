@@ -23,7 +23,7 @@ async def generate_response(prompt: str) -> str:
 
     last_error = ""
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         for model in MODELS:
             logger.info(f"AI model attempted: {model}")
             url = f"{base_url}/{model}:generateContent?key={settings.GEMINI_API_KEY}"
